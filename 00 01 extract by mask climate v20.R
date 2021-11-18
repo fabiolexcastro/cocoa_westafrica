@@ -5,39 +5,43 @@ source('00 general function.R')
 source('01 functions bioclimatic.R')
 
 # Load --------------------------------------------------------------------
-dout <- '../data/raster/climate/worldclim/2_5min/v1_4/'
-path <- '//dapadfs/data_cluster_4/observed/gridded_products/worldclim/Global_2_5min'
+dout <- '../data/raster/climate/worldclim/2_5min/v2_0/'
+path <- '//alliancedfs.alliance.cgiar.org/data_cluster_4/observed/gridded_products/worldclim/Global_2_5min_v2'
 fles <- dir_ls(path)
 limt <- shapefile('../data/shp/base/countries_target_4.shp')
 
 # Extract by mask variables  ----------------------------------------------
 prec <- grep('prec', fles, value = TRUE) %>% 
   mixedsort() %>% 
-  grep(paste0(paste0('prec_', 1:12, '$'), collapse = '|'), ., value = TRUE) %>% 
+  as.character() %>% 
+  grep(paste0(paste0('prec_', 1:12, '.tif$'), collapse = '|'), ., value = TRUE) %>% 
   stack() %>% 
   raster::crop(., limt) %>% 
   raster::mask(., limt)
 tmax <- grep('tmax', fles, value = TRUE) %>% 
   mixedsort() %>% 
-  grep(paste0(paste0('tmax_', 1:12, '$'), collapse = '|'), ., value = TRUE) %>% 
+  as.character() %>% 
+  grep(paste0(paste0('tmax_', 1:12, '.tif$'), collapse = '|'), ., value = TRUE) %>% 
   stack() %>% 
   raster::crop(., limt) %>% 
   raster::mask(., limt) 
 tmin <- grep('tmin', fles, value = TRUE) %>% 
   mixedsort() %>% 
-  grep(paste0(paste0('tmin_', 1:12, '$'), collapse = '|'), ., value = TRUE) %>% 
+  as.character() %>% 
+  grep(paste0(paste0('tmin_', 1:12, '.tif$'), collapse = '|'), ., value = TRUE) %>% 
   raster::stack() %>% 
   raster::crop(., limt) %>% 
   raster::mask(., limt)
-tavg <- grep('tmean', fles, value = TRUE) %>% 
+tavg <- grep('tavg_', fles, value = TRUE) %>% 
   mixedsort() %>% 
-  grep(paste0(paste0('tmean_', 1:12, '$'), collapse = '|'), ., value = TRUE) %>% 
+  as.character() %>% 
+  grep(paste0(paste0('tavg_', 1:12, '.tif$'), collapse = '|'), ., value = TRUE) %>% 
   raster::stack() %>% 
   raster::crop(., limt) %>% 
   raster::mask(., limt)
 
 # Output directory -------------------------------------------------------
-dout <- '../data/raster/climate/worldclim/2_5min/v1_4'
+dout <- '../data/raster/climate/worldclim/2_5min/v2_0'
 
 # Bioclimatic variables 1 - 19 --------------------------------------------
 bios <- dismo::biovars(prec = stack(prec), tmax = stack(tmax), tmin = stack(tmin))
@@ -58,7 +62,7 @@ bio_20 <- max(allp, na.rm = TRUE)
 writeRaster(bio_20, glue('{dout}/bio_20.tif'))
 
 # ETP Bioclimatic ---------------------------------------------------------
-srad <- list.files('//dapadfs/data_cluster_4/observed/gridded_products/worldclim/Global_2_5min_v2', full.names = TRUE, pattern = '.tif$') %>% 
+srad <- list.files('//alliancedfs.alliance.cgiar.org/data_cluster_4/observed/gridded_products/worldclim/Global_2_5min_v2', full.names = TRUE, pattern = '.tif$') %>% 
   grep('srad', ., value = TRUE) %>% 
   mixedsort %>% 
   stack() %>% 
@@ -67,17 +71,31 @@ srad <- list.files('//dapadfs/data_cluster_4/observed/gridded_products/worldclim
 
 # Conversion Solar Radiation
 srad <- srad * 0.408/1000
-Map('writeRaster', x = unstack(srad), filename = glue('../data/raster/srad/srad_{1:12}.tif'))
+Map('writeRaster', x = unstack(srad), filename = glue('../data/raster/srad/srad_{1:12}.tif'), overwrite = TRUE)
+srad <- list.files('../data/raster/srad', full.names = TRUE) %>% mixedsort %>% stack()
 
-tmax <- tmax/10
-tmin <- tmin/10
-tavg <- tavg/10
+# Extratterrestre solar radiation
+srad <- list.files('//catalogue/workspace-cluster9/DATA/1.Data/SolarRadiationExtraterrestre/ET_SolRad', full.names = T) %>% 
+  grep(paste0(paste0('et_solrad_', 1:12, '$'), collapse = '|'), ., value = TRUE) %>% 
+  mixedsort() %>% 
+  stack() %>% 
+  raster::crop(., limt) %>% 
+  raster::mask(., limt)
+
+srad <- raster::resample(srad, tmax, method = 'bilinear')
+srad <- srad * c(31,29,31,30,31,30,31,31,30,31,30,31)
+
+# ETP way one -------------------------------------------------------------
 etps <- 0.0023 * srad * sqrt(reclassify(tmax - tmin, c(-Inf, 0, 0))) * (tavg + 17.8)
 names(etps) <- paste0('etp_', 1:12)
 etps <- round(etps, 0)
 etps <- etps * c(31,29,31,30,31,30,31,31,30,31,30,31)
 
-Map('writeRaster', x = unstack(etps), filename = glue('{dout}/etp_{1:12}.tif'), overwrite = TRUE)
+# ETP way two -------------------------------------------------------------
+etps <- 0.0013 * 0.408 * srad * (tavg + 17) * (tmax - tmin - 0.0123 * prec) ^ 0.76
+Map('writeRaster', x = unstack(etps), filename = glue('{dout}/etp_{1:12}_v2.tif'), overwrite = TRUE)
+
+# Map('writeRaster', x = unstack(etps), filename = glue('{dout}/etp_{1:12}.tif'), overwrite = TRUE)
 Map('writeRaster', x = unstack(tmax), filename = glue('{dout}/tmax_{1:12}.tif'), overwrite = TRUE)
 Map('writeRaster', x = unstack(tmin), filename = glue('{dout}/tmin_{1:12}.tif'), overwrite = TRUE)
 Map('writeRaster', x = unstack(prec), filename = glue('{dout}/prec_{1:12}.tif'), overwrite = TRUE)
@@ -95,7 +113,7 @@ map(.x = 1:ncol(etbi), .f = function(k){
   print(k)
   lyer <- zero
   values(lyer) <- etbi[,k]
-  writeRaster(lyer, filename = glue('{dout}/{nmes[k]}.tif'), overwrite = TRUE)
+  writeRaster(lyer, filename = glue('{dout}/{nmes[k]}_v2.tif'), overwrite = TRUE)
 })
 
 # Biovariables 30 to 33 ---------------------------------------------------
@@ -108,7 +126,7 @@ map(.x = 1:ncol(bios), .f = function(k){
   print(k)
   lyer <- zero
   values(lyer) <- bios[,k]
-  writeRaster(lyer, filename = glue('{dout}/{nmes[k]}.tif'), overwrite = TRUE)
+  writeRaster(lyer, filename = glue('{dout}/{nmes[k]}_v2.tif'), overwrite = TRUE)
 })
 
 # Bioclimatic 34 ----------------------------------------------------------
@@ -144,3 +162,4 @@ plot(rstr)
 plot(raster(glue('{dout}/bio_12.tif')))
 max(rstr[], na.rm = TRUE)
 max(raster(glue('{dout}/bio_12.tif'))[], na.rm = TRUE)
+
