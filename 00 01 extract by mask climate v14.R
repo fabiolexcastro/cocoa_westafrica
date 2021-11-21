@@ -83,23 +83,46 @@ srad <- list.files('//catalogue/workspace-cluster9/DATA/1.Data/SolarRadiationExt
   raster::crop(., limt) %>% 
   raster::mask(., limt)
 
-# Resampling SRAD -----------------------------------------------------------
-srad <- raster::resample(srad, tmax, method = 'bilinear')
-srad <- srad * c(31,29,31,30,31,30,31,31,30,31,30,31)
 
+
+# Read solar radiation ------------------------------------------------------
+srad <- dir_ls('../data/raster/srad', regexp = 'xtt')
+srad <- stack(srad)
+srad <- raster::resample(srad, tmax, method = 'bilinear')
+names(srad) <- glue('srad_{1:12}')
+
+# Duda sobre el numero de dias, si se multiplica por estos del mes.  # NO HECHO DE MOMENTO
+# srad <- srad * c(31,29,31,30,31,30,31,31,30,31,30,31)
+
+# Conversion average temperature
 tmax <- tmax/10
 tmin <- tmin/10
 tavg <- tavg/10
 
 # ETP way one ---------------------------------------------------------------
-etps <- 0.0023 * srad * sqrt(reclassify(tmax - tmin, c(-Inf, 0, 0))) * (tavg + 17.8)
+# etps <- 0.0023 * srad * sqrt(reclassify(tmax - tmin, c(-Inf, 0, 0))) * (tavg + 17.8)
+# names(etps) <- paste0('etp_', 1:12)
+# etps <- round(etps, 0)
+# etps <- etps * c(31,29,31,30,31,30,31,31,30,31,30,31)
+
+# ETP way two -------------------------------------------------------------
+etps <- 0.0013 * 0.408 * srad * (tavg + 17) * (tmax - tmin - 0.0123 * prec) ^ 0.76
 names(etps) <- paste0('etp_', 1:12)
 etps <- round(etps, 0)
 etps <- etps * c(31,29,31,30,31,30,31,31,30,31,30,31)
 
-# ETP way two -------------------------------------------------------------
-etps <- 0.0013 * 0.408 * srad * (tavg + 17) * (tmax - tmin - 0.0123 * prec) ^ 0.76
-Map('writeRaster', x = unstack(etps), filename = glue('{dout}/etp_{1:12}_v2.tif'), overwrite = TRUE)
+# Chech Nans
+raster::extract(etps, data.frame(lon = -12.8, lat = 8.7))
+etps[is.nan(etps)]
+
+# Changing these NANs by 0 ------------------------------------------------
+for(i in 1:12){
+  print(i)
+  etps[[i]][which(is.nan(etps[[i]][]))] <- 0
+}
+
+# Write tese rasters
+Map('writeRaster', x = unstack(etps), filename = glue('{dout}/etp_{1:12}.tif'), overwrite = TRUE)
 
 # Map('writeRaster', x = unstack(etps), filename = glue('{dout}/etp_{1:12}.tif'), overwrite = TRUE)
 Map('writeRaster', x = unstack(tmax), filename = glue('{dout}/tmax_{1:12}.tif'), overwrite = TRUE)
@@ -122,8 +145,7 @@ map(.x = 1:ncol(etbi), .f = function(k){
   print(k)
   lyer <- zero
   values(lyer) <- etbi[,k]
-  plot(lyer)
-  writeRaster(lyer, filename = glue('{dout}/{nmes[k]}_v2.tif'), overwrite = TRUE)
+  writeRaster(lyer, filename = glue('{dout}/{nmes[k]}.tif'), overwrite = TRUE)
 })
 
 # Biovariables 30 to 33 ---------------------------------------------------
@@ -136,7 +158,7 @@ map(.x = 1:ncol(bios), .f = function(k){
   print(k)
   lyer <- zero
   values(lyer) <- bios[,k]
-  writeRaster(lyer, filename = glue('{dout}/{nmes[k]}_v2.tif'), overwrite = TRUE)
+  writeRaster(lyer, filename = glue('{dout}/{nmes[k]}.tif'), overwrite = TRUE)
 })
 
 # Bioclimatic 34 ----------------------------------------------------------
